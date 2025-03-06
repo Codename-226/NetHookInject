@@ -14,7 +14,7 @@ using namespace std;
 
 const char* MCC_PROC_STR = "mcc-win64-shipping.exe";
 const char* INJECTED_MODULE_NAME = "NetHook.dll";
-const char* INJECTED_MODULE_PATH = "";
+const char* INJECTED_MODULE_PATH = "D:\\Projects\\VS\\NetHookInject\\x64\\Release\\NetHook.dll";
 
 // TODO: share the declaration between the two projects (so its only written in one place)
 const int page_size = 0xffff; // NOTE: should be large enough to fit the largest possible log entry (probably 128 bytes?)
@@ -34,7 +34,7 @@ HANDLE find_process(const char* target_process, HMODULE* previous_injection) {
 
     HANDLE process_id;
     DWORD processes_count = cbNeeded / sizeof(DWORD);
-    for (int i = 0; i < processes_count; i++) {
+    for (DWORD i = 0; i < processes_count; i++) {
         if (!proc_id_array[i]) continue;
 
         //process_id = OpenProcess(PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | PROCESS_VM_WRITE, FALSE, proc_id_array[i]);
@@ -146,7 +146,7 @@ INT64 GetLogsOffset() {
 
 
 int main(){
-    std::cout << "Hello World!\n";
+    std::cout << "[INIT] Hello World!\n";
 
     HMODULE previous_injection = 0;
     HANDLE proc_id = find_process(MCC_PROC_STR, &previous_injection);
@@ -166,14 +166,15 @@ int main(){
         if (!previous_injection) {
             cout << "[INIT] dll injection failed.\n"; 
             return -1;
-    }}
 
+    }} else cout << "[INIT] dll already injected, connecting to that instead.\n";
 
+    // NOTE: we can eventually harcode the offset once we've finalized the executable
+    // however, the injector will be finished long before the injected dll will be, so we'll leave it as is
     INT64 log_struct_offset = GetLogsOffset();
 
 
     void* external_log_ptr = (void*)((UINT64)previous_injection + log_struct_offset);
-    cout << "found logs ptr: " << external_log_ptr << endl;
     
 
 
@@ -182,17 +183,50 @@ int main(){
 
     // then just run a loop within this tool to read the injected dlls event log\
     // readmem on the eventlog address to get the ptr and whatever
+    cout << "[INIT] running read loop\n";
+    cout << hex;
+
+    int current_read_position = 0;
+    int temp = 0;
+    LogData debug_values = {0};
+    char log_output_buffer[1024];
+
+
     while (true) {
         Sleep(500);
-        cout << "running\n";
-        LogData debug_values = {};
-        if (ReadProcessMemory(proc_id, external_log_ptr, &debug_values, sizeof(LogData), 0)) {
-            cout << "buffer ptr: " << debug_values.buffer << endl;
-            cout << "pages allocated: " << debug_values.pages_allocated << endl;
-            cout << "bytes used: " << debug_values.used << endl;
-        }
-        else {
-            cout << "failed loop memcheck.\n";
-        }
+        if (!ReadProcessMemory(proc_id, external_log_ptr, &debug_values, sizeof(LogData), 0))
+            goto read_log_error;
+
+
+        if (current_read_position >= debug_values.used)
+            goto buffer_up_to_date;
+
+        if (!debug_values.buffer)
+            goto null_buffer_error;
+        
+        // cap read size to 1024
+        temp = debug_values.used - current_read_position;
+        if (temp >= sizeof(log_output_buffer)) temp = sizeof(log_output_buffer) - 1;
+
+        if (!ReadProcessMemory(proc_id, debug_values.buffer + current_read_position, log_output_buffer, temp, 0))
+            goto read_buffer_error;
+        log_output_buffer[temp] = '\0';
+
+        current_read_position = debug_values.used;
+        cout << log_output_buffer;
+        continue;
+
+    read_log_error:
+        cout << "[LOOP] failed to read logs struct.\n";
+        continue;
+    null_buffer_error:
+        cout << "[LOOP] logs buffer is null.\n";
+        continue;
+    read_buffer_error:
+        cout << "[LOOP] failed to read logs str buffer.\n";
+        continue;
+    buffer_up_to_date:
+        cout << "[LOOP] nothing to report. buffer ptr: " << (uint64_t)debug_values.buffer << " pages allocated: " << debug_values.pages_allocated << " bytes used: " << debug_values.used << endl;
+        continue;
     }
 }
