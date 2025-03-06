@@ -184,12 +184,16 @@ int main(){
     LogData debug_values = {0};
     char log_output_buffer[1024];
 
+    bool has_read = false;
 
     while (true) {
         Sleep(500);
         if (!ReadProcessMemory(proc_id, external_log_ptr, &debug_values, sizeof(LogData), 0))
             goto read_log_error;
 
+        if (!has_read) {
+            cout << "[LOOP] buffer ptr: " << (uint64_t)debug_values.buffer << " pages allocated: " << debug_values.pages_allocated << " bytes used: " << debug_values.used << endl;
+            has_read = true;}
 
         if (current_read_position >= debug_values.used)
             goto buffer_up_to_date;
@@ -219,7 +223,8 @@ int main(){
         cout << "[LOOP] failed to read logs str buffer.\n";
         continue;
     buffer_up_to_date:
-        cout << "[LOOP] nothing to report. buffer ptr: " << (uint64_t)debug_values.buffer << " pages allocated: " << debug_values.pages_allocated << " bytes used: " << debug_values.used << endl;
+        
+        //cout << "[LOOP] nothing to report. buffer ptr: " << (uint64_t)debug_values.buffer << " pages allocated: " << debug_values.pages_allocated << " bytes used: " << debug_values.used << endl;
         continue;
     }
 }
